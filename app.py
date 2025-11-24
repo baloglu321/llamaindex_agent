@@ -4,6 +4,9 @@ import requests
 import inspect
 import pandas as pd
 from agent import *
+import asyncio 
+import nest_asyncio
+nest_asyncio.apply()
 
 # (Keep Constants as is)
 # --- Constants ---
@@ -21,7 +24,7 @@ class BasicAgent:
     def __call__(self, question: str) -> str:
         print(f"Agent received question (first 50 chars): {question[:50]}...")
 
-        fixed_answer = self.agent.run(question)
+        fixed_answer = asyncio.run(proc(question,self.agent)) 
         if not isinstance(fixed_answer, (str, int, float)):
             fixed_answer = str(fixed_answer)
         print(f"Agent returning fixed answer: {fixed_answer}")

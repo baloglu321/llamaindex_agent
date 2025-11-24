@@ -8,21 +8,20 @@ from llama_index.llms.ollama import Ollama
 from llama_index.tools.wikipedia import WikipediaToolSpec
 from llama_index.tools.duckduckgo import DuckDuckGoSearchToolSpec
 from llama_index.tools.arxiv import ArxivToolSpec
-import math
 import os
 import subprocess
 import whisper
 import pandas as pd
 import json
-import re
-import cv2
 from PIL import Image
 import base64
 import io
+import nest_asyncio
+nest_asyncio.apply()
 
-CLOUDFLARE_TUNNEL_URL = "https://retrieved-offices-myspace-cooperative.trycloudflare.com" 
+CLOUDFLARE_TUNNEL_URL = "..." 
 OLLAMA_MODEL_ID = "gemma3:27b"
-WEATHER_API = "28df0827f992105fb2d12d6c224a9509"
+WEATHER_API = "..."
 
 def get_question():
     print("Getting question...")
@@ -92,6 +91,7 @@ subtract_tool=FunctionTool.from_defaults(
 )
 
 def div_func(a:float,b:float)->float:
+    "This tool is divide two numbers but if second number is 0 this tool raise to error"
     print("Using divide tool...")
     if b==0:
        raise ValueError("Cannot divide by zero.") 
@@ -111,7 +111,7 @@ archive_search_tool=ArxivToolSpec()
 def transcribe_audio_whisper(audio_path:str)->str:
     print("Using audio transcriber tool...")
     model = whisper.load_model(
-        "small")  # 'tiny', 'base', 'small', 'medium', 'large'
+        "base")  # 'tiny', 'base', 'small', 'medium', 'large'
     result = model.transcribe(audio_path)
     return result["text"]
 
@@ -194,7 +194,7 @@ def caption_image_func(image_path: str, prompt: str) -> str:
     url = CLOUDFLARE_TUNNEL_URL + "/api/generate"
 
     payload = {
-        "model": model_id,
+        "model": OLLAMA_MODEL_ID,
         "prompt": prompt,
         "images": [image_base64],
         "stream": False,
@@ -222,73 +222,84 @@ im_caption_tool=FunctionTool.from_defaults(
 )
 
 
-def file_download_func(task_id:str)->str:
-    print("Using file download tool...")
+def file_download_func(task_id: str) -> str:
+    print(f"Using file download tool: {task_id}...")
     """
-    Downloads the file corresponding to the given task_id and processes it according to its type.
+    Downloads the file corresponding to the given task_id. 
+    Checks local directory first to avoid re-downloading.
+    Returns file path or content preview based on file type.
+    """
     
-    Args:
-        task_id (str): The unique ID of the file to download (e.g., 'task_123').
-        
-    Returns:
-        str: The file path, Excel/JSON content, or a success message.
-    """
+    # 1. YEREL KONTROL (CACHE): Dosya zaten var mı?
+    filename = None
+    supported_exts = [".xlsx", ".json", ".png", ".jpg", ".jpeg", ".bmp", ".mp3"]
+    
+    try:
+        # Klasördeki dosyaları tara
+        for f_name in os.listdir("."):
+            if task_id in f_name and any(f_name.endswith(ext) for ext in supported_exts):
+                filename = f_name
+                print(f"✅ Local copy found: {filename}. Skipping download.")
+                break
+    except Exception as e:
+        print(f"⚠️ Cache check error: {e}")
+            
+    # 2. YEREL YOKSA İNDİR
+    if not filename:
+        url = f"https://agents-course-unit4-scoring.hf.space/files/{task_id}"
+        try:
+            print(f"⬇️ Downloading from: {url}")
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                content_disp = response.headers.get("content-disposition", "")
+                if "filename=" in content_disp:
+                    filename = content_disp.split("filename=")[-1].strip('"')
+                else:
+                    filename = f"downloaded_{task_id}.bin"
+                
+                with open(filename, "wb") as f:
+                    f.write(response.content)
+                print("✅ File downloaded from server.")
+            else:
+                # MOCK YOK - Sadece hata döndür
+                return f"Error: Server returned status code {response.status_code}. File could not be downloaded."
+                
+        except Exception as e:
+            return f"Error: Network error during download ({e})."
 
-
-    url = f"https://agents-course-unit4-scoring.hf.space/files/{task_id}"
-    response = requests.get(url)
-
-    content_disposition = response.headers.get("content-disposition", "")
-    if "filename=" in content_disposition:
-        filename = content_disposition.split("filename=")[-1].strip('"')
-    else:
-        return "Unable to find a supported file type."
-
-    file_path = os.path.join(".", filename)
-    with open(file_path, "wb") as f:
-        f.write(response.content)
-
-    if filename.endswith(".mp3"):
-        answer = f"The MP3 file was downloaded successfully. Saved at: {file_path}"
-        return answer
-    elif filename.endswith(".xlsx"):
-        df = pd.read_excel(file_path)
-
-        # İlk birkaç satırı düzgün formatta yazalım (çok büyükse tümünü yazmak istemeyebiliriz)
-        df_preview = df.to_string(index=False)
-
-        return (
-            f"The file '{filename}' has been downloaded and read as an Excel spreadsheet.\n"
-            f"Here is a preview of its contents:\n\n{df_preview}")
-
-    elif filename.endswith(".json"):
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return f"The file '{filename}' has been downloaded and its content is as follows:\n{json.dumps(data, indent=2)}"
-
-    elif filename.endswith((".png", ".jpg", ".jpeg", ".bmp", ".PNG",
-                            ".JPG", ".JPEG", ".BMP")):
-        answer = (
-            f"The image file was downloaded successfully. Saved at: {file_path}"
-        )
-        return answer
-    else:
-        os.remove(file_path)  # gereksiz dosyayı sil
-        return "The downloaded file is not in a supported format."
+    # 3. DOSYAYI İŞLE VE ÖZET DÖNDÜR
+    if filename and os.path.exists(filename):
+        file_path = os.path.join(".", filename)
+        try:
+            if filename.endswith(".xlsx"):
+                df = pd.read_excel(file_path)
+                return f"Excel file '{filename}' ready. Preview (First 20 rows):\n{df.head(20).to_string()}"
+            
+            elif filename.endswith(".json"):
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return f"JSON file '{filename}' ready. Content (Truncated):\n{str(data)[:2000]}"
+            
+            elif filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                return f"Image file saved at: {file_path}. Use 'image_captioner' tool to analyze it."
+            
+            elif filename.endswith(".mp3"):
+                return f"Audio file saved at: {file_path}. Use 'mp3_transcript' tool to transcribe it."
+            
+            else:
+                return f"File saved at {file_path}, but the format is not automatically processed by this tool."
+                
+        except Exception as e:
+            return f"Error processing file {filename}: {e}"
+            
+    return "Error: File was not found locally and download failed."
 
 file_download_tool=FunctionTool.from_defaults(
-    file_download_func,
-    name = "File_Download_Tool",
-    description = (
-        "Downloads a file from a Hugging Face-hosted URL using the given task_id.\n\n"
-        "Supported file types and behaviors:\n"
-        "- If .mp3 → Downloads the audio file and returns its saved path.\n"
-        "- If .xlsx → Parses the Excel file and returns a readable text \n"
-        "- If .json → Parses and returns the full JSON content in readable format.\n"
-        "- If .jpg/.jpeg/.png/.bmp → Downloads the image file and returns its saved path.\n"
-        "- For all other file types → Deletes the file and returns an unsupported format message."
-    )
-)
+    fn=file_download_func, 
+    name="File_Download_Tool", 
+    description="Downloads files.")
+
 
 
 def download_video_from_youtube(url:str, output_path="video.mp4")->str:
@@ -336,6 +347,10 @@ yt_video_download_tool=FunctionTool.from_defaults(
 )
 
 
+async def proc(prompt,agent):
+    # Agent'ı çalıştır
+    response = await agent.run(prompt)
+    return response.response
 
 
 def build_agent():
@@ -363,24 +378,26 @@ def build_agent():
 
 
     tool_list = [
-        yt_video_download_tool,
-        file_download_tool,
-        im_caption_tool,
-        youtube_transcript_tool,
-        transcriber_tool,
-        weather_tool,
-        search_tool,
-        multiply_tool,
-        add_tool,
-        subtract_tool,
-        divide_tool,
-        wiki_search_tool,
-        archive_search_tool,
-                    
+
+        yt_video_download_tool,    
+        file_download_tool,      
+        im_caption_tool,           
+        youtube_transcript_tool,  
+        transcriber_tool,        
+        weather_tool,             
+        multiply_tool,             
+        add_tool,                 
+        subtract_tool,            
+        divide_tool,               
+              
     ]
+    search_tools=search_tool.to_tool_list()
+    search_tools.extend(archive_search_tool.to_tool_list())
+    search_tools.extend(wiki_search_tool.to_tool_list())
+    search_tools.extend(tool_list)
 
     Arxivangelist = ReActAgent( 
-        tools=tool_list,
+        tools=search_tools,
         llm=model,
         verbose=True, 
         system_prompt=system_prompt,
@@ -393,6 +410,11 @@ def build_agent():
 if __name__ == "__main__":
     # tool_test()
     Arxivangelist = build_agent()
+    start_time = time.time()
     question, response = get_question()
-    answer = Arxivangelist.run(question)
+    print(question)
+    answer=asyncio.run(proc(question,Arxivangelist)) 
+    duration = time.time() - start_time
+    print(f"   ✅ BAŞARILI ({duration:.2f}sn)")
+    print(f"   🤖 Cevap: {str(answer)}")
     print(answer)

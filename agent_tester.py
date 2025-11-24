@@ -20,9 +20,9 @@ import io
 import nest_asyncio
 nest_asyncio.apply()
 
-CLOUDFLARE_TUNNEL_URL = "https://retrieved-offices-myspace-cooperative.trycloudflare.com" 
+CLOUDFLARE_TUNNEL_URL = "..." 
 OLLAMA_MODEL_ID = "gemma3:27b"
-WEATHER_API = "28df0827f992105fb2d12d6c224a9509"
+WEATHER_API = "..."
 
 
 def WeatherInfoTool(location:str)->str:
@@ -514,4 +514,4 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"Agent oluşturulurken hata oluştu: {e}")
-        print("Lütfen ReActAgent tanımlarındaki SmolAgents parametrelerini sildiğinizden emin olun.")
+
