@@ -11,10 +11,10 @@ from llama_index.core.llms import ChatMessage, MessageRole
 
 import requests
 
-CLOUDFLARE_TUNNEL_URL = "https://retrieved-offices-myspace-cooperative.trycloudflare.com" 
+CLOUDFLARE_TUNNEL_URL = "..." 
 OLLAMA_MODEL_ID = "gemma3:27b"
-WEATHER_API = "28df0827f992105fb2d12d6c224a9509"
-SERPER_API_KEY = "d713b469bec107810b2ec381f4454743bf409489"
+WEATHER_API = "..."
+SERPER_API_KEY = "..."
 
 def get_question():
     API_URL = "https://agents-course-unit4-scoring.hf.space/random-question"
